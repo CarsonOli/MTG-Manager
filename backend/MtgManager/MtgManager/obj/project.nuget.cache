@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "dgSpecHash": "f7jkUUj6oc4=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\carso\\Projects\\MTG-Manager\\backend\\MtgManager\\MtgManager\\MtgManager.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\carso\\.nuget\\packages\\bcrypt.net-next\\4.0.3\\bcrypt.net-next.4.0.3.nupkg.sha512",
+    "C:\\Users\\carso\\.nuget\\packages\\microsoft.aspnetcore.authentication.jwtbearer\\10.0.5\\microsoft.aspnetcore.authentication.jwtbearer.10.0.5.nupkg.sha512",
+    "C:\\Users\\carso\\.nuget\\packages\\microsoft.aspnetcore.openapi\\10.0.5\\microsoft.aspnetcore.openapi.10.0.5.nupkg.sha512",
+    "C:\\Users\\carso\\.nuget\\packages\\microsoft.identitymodel.abstractions\\8.14.0\\microsoft.identitymodel.abstractions.8.14.0.nupkg.sha512",
+    "C:\\Users\\carso\\.nuget\\packages\\microsoft.identitymodel.jsonwebtokens\\8.14.0\\microsoft.identitymodel.jsonwebtokens.8.14.0.nupkg.sha512",
+    "C:\\Users\\carso\\.nuget\\packages\\microsoft.identitymodel.logging\\8.14.0\\microsoft.identitymodel.logging.8.14.0.nupkg.sha512",
+    "C:\\Users\\carso\\.nuget\\packages\\microsoft.identitymodel.protocols\\8.0.1\\microsoft.identitymodel.protocols.8.0.1.nupkg.sha512",
+    "C:\\Users\\carso\\.nuget\\packages\\microsoft.identitymodel.protocols.openidconnect\\8.0.1\\microsoft.identitymodel.protocols.openidconnect.8.0.1.nupkg.sha512",
+    "C:\\Users\\carso\\.nuget\\packages\\microsoft.identitymodel.tokens\\8.14.0\\microsoft.identitymodel.tokens.8.14.0.nupkg.sha512",
+    "C:\\Users\\carso\\.nuget\\packages\\microsoft.openapi\\2.0.0\\microsoft.openapi.2.0.0.nupkg.sha512",
+    "C:\\Users\\carso\\.nuget\\packages\\npgsql\\9.0.4\\npgsql.9.0.4.nupkg.sha512",
+    "C:\\Users\\carso\\.nuget\\packages\\system.identitymodel.tokens.jwt\\8.14.0\\system.identitymodel.tokens.jwt.8.14.0.nupkg.sha512"
+  ],
+  "logs": []
+}

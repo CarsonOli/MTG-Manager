@@ -1,0 +1,6 @@
+@MtgManager_HostAddress = http://localhost:5131
+
+GET {{MtgManager_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
