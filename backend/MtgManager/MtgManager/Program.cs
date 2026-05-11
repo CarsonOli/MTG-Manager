@@ -25,8 +25,11 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
     {
-        // Restricts frontend access to the configured deployment and local development origins.
-        policy.WithOrigins(allowedOrigins)
+        // Restricts frontend access to configured origins while also permitting Vercel app domains.
+        // This helps when Vercel assigns a new preview/production URL during redeploys.
+        policy.SetIsOriginAllowed(origin =>
+            allowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase) ||
+            origin.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase))
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
