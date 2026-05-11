@@ -1,0 +1,10 @@
+.git
+.gitignore
+**/bin
+**/obj
+**/node_modules
+frontend/dist
+frontend/.env
+frontend/.env.*
+README.md
+AGENTS.md

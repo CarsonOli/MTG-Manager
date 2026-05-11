@@ -13,12 +13,20 @@ builder.Services.AddSingleton<DbConnectionFactory>();
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<CurrentUserService>();
 
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? Array.Empty<string>();
+if (allowedOrigins.Length == 0)
+{
+    // Falls back to local Vite frontend if production origins are not configured yet.
+    allowedOrigins = new[] { "http://localhost:5173" };
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
     {
-        // Allows the Vite dev server to call the API during local development.
-        policy.WithOrigins("http://localhost:5173")
+        // Restricts frontend access to the configured deployment and local development origins.
+        policy.WithOrigins(allowedOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod();
     });

@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: mtg-manager-api
+    runtime: dotnet
+    rootDir: backend/MtgManager/MtgManager
+    buildCommand: dotnet restore && dotnet publish -c Release -o out
+    startCommand: dotnet out/MtgManager.dll
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://0.0.0.0:$PORT
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
+      - key: Jwt__Issuer
+        value: MtgManagerApi
+      - key: Jwt__Audience
+        value: MtgManagerClient
+      - key: Jwt__Secret
+        sync: false
+      - key: Cors__AllowedOrigins__0
+        sync: false
