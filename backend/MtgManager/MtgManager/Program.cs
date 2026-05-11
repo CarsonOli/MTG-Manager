@@ -68,6 +68,11 @@ app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Lightweight root endpoint so deployments can be checked without guessing controller routes.
+app.MapGet("/", () => Results.Ok(new { service = "MtgManager API", status = "ok" }));
+// Health endpoint for uptime checks and quick diagnostics in hosting dashboards.
+app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
+
 app.MapControllers();
 
 app.Run();
