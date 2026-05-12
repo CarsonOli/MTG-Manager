@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using MtgManager.Data;
 using MtgManager.Dtos;
 using MtgManager.Models;
+using MtgManager.Services;
 using Npgsql;
 
 namespace MtgManager.Controllers;
@@ -14,10 +15,12 @@ namespace MtgManager.Controllers;
 public class DecksController : ControllerBase
 {
     private readonly DbConnectionFactory connectionFactory;
+    private readonly ScryfallCommanderService scryfallCommanderService;
 
-    public DecksController(DbConnectionFactory connectionFactory)
+    public DecksController(DbConnectionFactory connectionFactory, ScryfallCommanderService scryfallCommanderService)
     {
         this.connectionFactory = connectionFactory;
+        this.scryfallCommanderService = scryfallCommanderService;
     }
 
     [HttpGet]
@@ -74,13 +77,28 @@ public class DecksController : ControllerBase
             return BadRequest(validationError);
         }
 
+        var commander = await scryfallCommanderService.GetCommanderAsync(request.Commander, HttpContext.RequestAborted);
+        if (!commander.IsValid)
+        {
+            return BadRequest(commander.ErrorMessage);
+        }
+
+        var colorValidationError = await ValidateCommanderColorIdentity(
+            connection,
+            request.ColorIdentityId,
+            commander.ColorIdentityCode ?? string.Empty);
+        if (colorValidationError is not null)
+        {
+            return BadRequest(colorValidationError);
+        }
+
         const string insertSql = @"
             INSERT INTO decks (user_id, color_identity_id, archetype_id, deck_name, commander, bracket, wins, losses, description)
             VALUES (@userId, @colorIdentityId, @archetypeId, @deckName, @commander, @bracket, @wins, @losses, @description)
             RETURNING deck_id;";
 
         await using var insertCommand = new NpgsqlCommand(insertSql, connection);
-        AddDeckParameters(insertCommand, request, userId.Value);
+        AddDeckParameters(insertCommand, request, userId.Value, commander.Name ?? request.Commander.Trim());
 
         long deckId;
         try
@@ -136,6 +154,26 @@ public class DecksController : ControllerBase
             return BadRequest(validationError);
         }
 
+        var commanderName = request.Commander.Trim();
+        var commanderColorCode = existingDeck.ColorIdentityCode;
+        if (!string.Equals(existingDeck.Commander, commanderName, StringComparison.Ordinal))
+        {
+            var commander = await scryfallCommanderService.GetCommanderAsync(request.Commander, HttpContext.RequestAborted);
+            if (!commander.IsValid)
+            {
+                return BadRequest(commander.ErrorMessage);
+            }
+
+            commanderName = commander.Name ?? commanderName;
+            commanderColorCode = commander.ColorIdentityCode ?? commanderColorCode;
+        }
+
+        var colorValidationError = await ValidateCommanderColorIdentity(connection, request.ColorIdentityId, commanderColorCode);
+        if (colorValidationError is not null)
+        {
+            return BadRequest(colorValidationError);
+        }
+
         const string updateSql = @"
             UPDATE decks
             SET color_identity_id = @colorIdentityId,
@@ -150,7 +188,7 @@ public class DecksController : ControllerBase
             WHERE deck_id = @deckId AND user_id = @userId;";
 
         await using var updateCommand = new NpgsqlCommand(updateSql, connection);
-        AddDeckParameters(updateCommand, request, userId.Value);
+        AddDeckParameters(updateCommand, request, userId.Value, commanderName);
         updateCommand.Parameters.AddWithValue("deckId", deckId);
 
         try
@@ -193,13 +231,13 @@ public class DecksController : ControllerBase
         return long.TryParse(userIdValue, out var userId) ? userId : null;
     }
 
-    private static void AddDeckParameters(NpgsqlCommand command, DeckUpsertRequest request, long userId)
+    private static void AddDeckParameters(NpgsqlCommand command, DeckUpsertRequest request, long userId, string commanderName)
     {
         command.Parameters.AddWithValue("userId", userId);
         command.Parameters.AddWithValue("colorIdentityId", request.ColorIdentityId);
         command.Parameters.AddWithValue("archetypeId", request.ArchetypeId is null ? DBNull.Value : request.ArchetypeId.Value);
         command.Parameters.AddWithValue("deckName", request.DeckName.Trim());
-        command.Parameters.AddWithValue("commander", request.Commander.Trim());
+        command.Parameters.AddWithValue("commander", commanderName);
         command.Parameters.AddWithValue("bracket", request.Bracket);
         command.Parameters.AddWithValue("wins", request.Wins);
         command.Parameters.AddWithValue("losses", request.Losses);
@@ -231,6 +269,27 @@ public class DecksController : ControllerBase
         var archetypeExists = (long)(await archetypeCommand.ExecuteScalarAsync() ?? 0L) > 0;
 
         return archetypeExists ? null : "Selected archetype does not exist.";
+    }
+
+    // Keeps stored color identity in sync with the selected Scryfall commander.
+    private static async Task<string?> ValidateCommanderColorIdentity(
+        NpgsqlConnection connection,
+        short colorIdentityId,
+        string expectedColorIdentityCode)
+    {
+        const string sql = "SELECT code FROM color_identities WHERE color_identity_id = @colorIdentityId;";
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("colorIdentityId", colorIdentityId);
+
+        var selectedColorIdentityCode = await command.ExecuteScalarAsync() as string;
+        if (selectedColorIdentityCode is null)
+        {
+            return "Selected color identity does not exist.";
+        }
+
+        return string.Equals(selectedColorIdentityCode, expectedColorIdentityCode, StringComparison.Ordinal)
+            ? null
+            : $"Selected color identity must match the commander ({expectedColorIdentityCode}).";
     }
 
     private static async Task<DeckRecord?> GetDeckById(NpgsqlConnection connection, long deckId, long userId)

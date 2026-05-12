@@ -2,6 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import './App.css'
 import { apiRequest } from './api'
+import {
+  getCommanderCardByExactName,
+  getCommanderColorIdentityCode,
+  searchCommanderCards,
+  type CommanderCard,
+} from './scryfall'
 import type {
   AuthResponse,
   Deck,
@@ -76,6 +82,11 @@ function formatUpdatedAt(value: string) {
   }).format(date)
 }
 
+// Gives screen readers useful context without relying on card art alone.
+function getCommanderImageAlt(card: CommanderCard) {
+  return `${card.name} card image`
+}
+
 function App() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('mtgToken'))
   const [username, setUsername] = useState<string>(() => localStorage.getItem('mtgUsername') ?? '')
@@ -97,8 +108,17 @@ function App() {
   const [formState, setFormState] = useState<FormState>(initialFormState)
   const [editingDeckId, setEditingDeckId] = useState<number | null>(null)
   const [actionError, setActionError] = useState('')
+  const [commanderResults, setCommanderResults] = useState<CommanderCard[]>([])
+  const [commanderSearchLoading, setCommanderSearchLoading] = useState(false)
+  const [commanderSearchError, setCommanderSearchError] = useState('')
+  const [selectedCommanderCard, setSelectedCommanderCard] = useState<CommanderCard | null>(null)
+  const [topCommanderCards, setTopCommanderCards] = useState<Record<string, CommanderCard | null>>({})
 
   const totalGames = useMemo(() => (stats ? stats.totalWins + stats.totalLosses : 0), [stats])
+  const topCommanderKey = useMemo(
+    () => publicStats?.topCommanders.map((item) => item.commander).join('|') ?? '',
+    [publicStats],
+  )
 
   // Loads public totals that can be shown before a visitor signs in.
   async function loadPublicStats() {
@@ -149,6 +169,77 @@ function App() {
     })
   }, [token])
 
+  useEffect(() => {
+    const topCommanderNames = publicStats?.topCommanders.map((item) => item.commander) ?? []
+
+    if (topCommanderNames.length === 0) {
+      setTopCommanderCards({})
+      return
+    }
+
+    const controller = new AbortController()
+
+    // Hydrates public commander stats with card images without changing the stored deck schema.
+    async function loadTopCommanderCards() {
+      const entries = await Promise.all(
+        topCommanderNames.map(async (commander) => {
+          try {
+            return [commander, await getCommanderCardByExactName(commander, controller.signal)] as const
+          } catch (error) {
+            if (error instanceof DOMException && error.name === 'AbortError') {
+              return [commander, null] as const
+            }
+
+            return [commander, null] as const
+          }
+        }),
+      )
+
+      if (!controller.signal.aborted) {
+        setTopCommanderCards(Object.fromEntries(entries))
+      }
+    }
+
+    loadTopCommanderCards()
+
+    return () => controller.abort()
+  }, [publicStats, topCommanderKey])
+
+  useEffect(() => {
+    const commanderQuery = formState.commander.trim()
+    const selectedName = selectedCommanderCard?.name ?? ''
+
+    if (currentView !== 'deck-form' || commanderQuery.length < 2 || commanderQuery === selectedName) {
+      setCommanderResults([])
+      setCommanderSearchLoading(false)
+      setCommanderSearchError('')
+      return
+    }
+
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(async () => {
+      setCommanderSearchLoading(true)
+      setCommanderSearchError('')
+
+      try {
+        setCommanderResults(await searchCommanderCards(commanderQuery, controller.signal))
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          setCommanderSearchError(error instanceof Error ? error.message : 'Unable to search Scryfall.')
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setCommanderSearchLoading(false)
+        }
+      }
+    }, 350)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+      controller.abort()
+    }
+  }, [currentView, formState.commander, selectedCommanderCard])
+
   function goToView(view: AppView) {
     setActionError('')
     setAuthError('')
@@ -176,6 +267,36 @@ function App() {
   function openCreateDeckForm() {
     resetDeckForm()
     goToView('deck-form')
+  }
+
+  function clearCommanderPicker() {
+    setCommanderResults([])
+    setCommanderSearchError('')
+    setCommanderSearchLoading(false)
+    setSelectedCommanderCard(null)
+  }
+
+  // User edits clear the selected card so saves only use a deliberate Scryfall result.
+  function handleCommanderInputChange(value: string) {
+    setFormState({ ...formState, commander: value })
+
+    if (selectedCommanderCard && selectedCommanderCard.name !== value.trim()) {
+      setSelectedCommanderCard(null)
+    }
+  }
+
+  function selectCommander(card: CommanderCard) {
+    const commanderColorCode = getCommanderColorIdentityCode(card)
+    const matchingColorIdentity = colorIdentities.find((item) => item.code === commanderColorCode)
+
+    setSelectedCommanderCard(card)
+    setCommanderResults([])
+    setCommanderSearchError('')
+    setFormState({
+      ...formState,
+      commander: card.name,
+      colorIdentityId: matchingColorIdentity?.id ?? formState.colorIdentityId,
+    })
   }
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
@@ -226,6 +347,7 @@ function App() {
     setStats(null)
     setEditingDeckId(null)
     setFormState(initialFormState)
+    clearCommanderPicker()
     setCurrentView('home')
     setPostLoginView(null)
   }
@@ -233,6 +355,7 @@ function App() {
   function startEditing(deck: Deck) {
     setEditingDeckId(deck.deckId)
     setCurrentView('deck-form')
+    clearCommanderPicker()
     setFormState({
       deckName: deck.deckName,
       commander: deck.commander,
@@ -247,6 +370,7 @@ function App() {
 
   function resetDeckForm() {
     setEditingDeckId(null)
+    clearCommanderPicker()
     setFormState({
       ...initialFormState,
       colorIdentityId: colorIdentities[0]?.id || 0,
@@ -261,10 +385,21 @@ function App() {
     }
 
     setActionError('')
+    const trimmedCommander = formState.commander.trim()
+    const originalCommander = editingDeckId
+      ? decks.find((deck) => deck.deckId === editingDeckId)?.commander
+      : null
+    const commanderIsSelected = selectedCommanderCard?.name === trimmedCommander
+    const commanderIsUnchanged = editingDeckId !== null && originalCommander === trimmedCommander
+
+    if (!commanderIsSelected && !commanderIsUnchanged) {
+      setActionError('Select a commander from the Scryfall results before saving.')
+      return
+    }
 
     const payload: DeckUpsertRequest = {
       deckName: formState.deckName.trim(),
-      commander: formState.commander.trim(),
+      commander: selectedCommanderCard?.name ?? trimmedCommander,
       bracket: formState.bracket,
       colorIdentityId: formState.colorIdentityId,
       archetypeId: formState.archetypeId,
@@ -370,13 +505,33 @@ function App() {
             </div>
           ) : (
             <ol className="top-commanders-list">
-              {publicStats?.topCommanders.map((item, index) => (
-                <li key={item.commander}>
-                  <span className="rank-number">{index + 1}</span>
-                  <span>{item.commander}</span>
-                  <strong>{item.deckCount} submitted</strong>
-                </li>
-              ))}
+              {publicStats?.topCommanders.map((item, index) => {
+                const commanderCard = topCommanderCards[item.commander]
+
+                return (
+                  <li key={item.commander}>
+                    <span className="rank-number">{index + 1}</span>
+                    {commanderCard?.thumbnailUrl ? (
+                      <img
+                        className="top-commander-image"
+                        src={commanderCard.thumbnailUrl}
+                        alt={getCommanderImageAlt(commanderCard)}
+                      />
+                    ) : (
+                      <span className="top-commander-placeholder" aria-hidden="true">
+                        {item.commander.charAt(0)}
+                      </span>
+                    )}
+                    <span className="top-commander-name">
+                      <span>{item.commander}</span>
+                      {commanderCard && (
+                        <small>{getCommanderColorIdentityCode(commanderCard)}</small>
+                      )}
+                    </span>
+                    <strong>{item.deckCount} submitted</strong>
+                  </li>
+                )
+              })}
             </ol>
           )}
         </section>
@@ -481,15 +636,76 @@ function App() {
               maxLength={120}
             />
           </label>
-          <label>
-            <span>Commander</span>
-            <input
-              value={formState.commander}
-              onChange={(event) => setFormState({ ...formState, commander: event.target.value })}
-              required
-              maxLength={120}
-            />
-          </label>
+          <div className="commander-picker full-width">
+            <label>
+              <span>Commander</span>
+              <input
+                value={formState.commander}
+                onChange={(event) => handleCommanderInputChange(event.target.value)}
+                required
+                maxLength={120}
+                autoComplete="off"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={commanderResults.length > 0}
+                aria-controls="commander-results"
+              />
+            </label>
+
+            {commanderSearchLoading && (
+              <p className="muted-text commander-status">Searching Scryfall...</p>
+            )}
+
+            {commanderSearchError && (
+              <p className="error-text commander-error" role="alert">
+                {commanderSearchError}
+              </p>
+            )}
+
+            {commanderResults.length > 0 && (
+              <div
+                id="commander-results"
+                className="commander-results"
+                role="listbox"
+                aria-label="Commander search results"
+              >
+                {commanderResults.map((card) => (
+                  <button
+                    key={card.id}
+                    type="button"
+                    className="commander-result"
+                    role="option"
+                    onClick={() => selectCommander(card)}
+                  >
+                    <img src={card.thumbnailUrl} alt={getCommanderImageAlt(card)} />
+                    <span>
+                      <strong>{card.name}</strong>
+                      <small>{card.typeLine}</small>
+                    </span>
+                    <span className="badge badge-color">{getCommanderColorIdentityCode(card)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {selectedCommanderCard && (
+              <article className="commander-preview" aria-label="Selected commander">
+                <img
+                  src={selectedCommanderCard.imageUrl}
+                  alt={getCommanderImageAlt(selectedCommanderCard)}
+                />
+                <div>
+                  <span className="eyebrow">Selected Commander</span>
+                  <h3>{selectedCommanderCard.name}</h3>
+                  <p className="commander-type-line">{selectedCommanderCard.typeLine}</p>
+                  {selectedCommanderCard.oracleText && <p>{selectedCommanderCard.oracleText}</p>}
+                  <a href={selectedCommanderCard.scryfallUrl} target="_blank" rel="noreferrer">
+                    View on Scryfall
+                  </a>
+                </div>
+              </article>
+            )}
+          </div>
           <label>
             <span>Bracket</span>
             <input

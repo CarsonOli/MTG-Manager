@@ -13,6 +13,13 @@ builder.Services.AddOpenApi();
 builder.Services.AddSingleton<DbConnectionFactory>();
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<CurrentUserService>();
+builder.Services.AddHttpClient<ScryfallCommanderService>(client =>
+{
+    // Scryfall asks API clients to identify themselves and request JSON explicitly.
+    client.BaseAddress = new Uri("https://api.scryfall.com");
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("MTG-Manager/1.0");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+});
 
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
     ?? Array.Empty<string>();
