@@ -119,6 +119,7 @@ function App() {
   const [commanderSearchError, setCommanderSearchError] = useState('')
   const [selectedCommanderCard, setSelectedCommanderCard] = useState<CommanderCard | null>(null)
   const [topCommanderCards, setTopCommanderCards] = useState<Record<string, CommanderCard | null>>({})
+  const [recordUpdatingDeckId, setRecordUpdatingDeckId] = useState<number | null>(null)
 
   const totalGames = useMemo(() => (stats ? stats.totalWins + stats.totalLosses : 0), [stats])
   const topCommanderKey = useMemo(
@@ -351,6 +352,7 @@ function App() {
     setDecks([])
     setStats(null)
     setEditingDeckId(null)
+    setRecordUpdatingDeckId(null)
     setFormState(initialFormState)
     clearCommanderPicker()
     setCurrentView('home')
@@ -431,6 +433,47 @@ function App() {
       setCurrentView('decks')
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Unable to save the deck.')
+    }
+  }
+
+  // Updates only the visible match record while preserving the deck's saved details.
+  async function updateDeckRecord(deck: Deck, nextWins: number, nextLosses: number) {
+    if (!token) {
+      goToView('login')
+      return
+    }
+
+    const wins = Math.max(0, nextWins)
+    const losses = Math.max(0, nextLosses)
+
+    if (wins === deck.wins && losses === deck.losses) {
+      return
+    }
+
+    const payload: DeckUpsertRequest = {
+      deckName: deck.deckName,
+      commander: deck.commander,
+      bracket: deck.bracket,
+      colorIdentityId: deck.colorIdentityId,
+      archetypeId: deck.archetypeId,
+      wins,
+      losses,
+      description: deck.description ?? '',
+    }
+
+    setActionError('')
+    setRecordUpdatingDeckId(deck.deckId)
+
+    try {
+      await apiRequest<Deck>(`/api/decks/${deck.deckId}`, token, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      })
+      await Promise.all([loadDashboardData(token), loadPublicStats()])
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to update the deck record.')
+    } finally {
+      setRecordUpdatingDeckId(null)
     }
   }
 
@@ -579,36 +622,90 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {decks.map((deck) => (
-                  <tr key={deck.deckId}>
-                    <td>
-                      <strong className="deck-name">{deck.deckName}</strong>
-                      <span className="deck-meta">Bracket {deck.bracket}</span>
-                    </td>
-                    <td>{deck.commander}</td>
-                    <td>
-                      <span className="badge badge-color">{getColorIdentityLabel(deck)}</span>
-                    </td>
-                    <td>{deck.archetypeName ?? 'Unassigned'}</td>
-                    <td>
-                      <span className="record-text">
-                        {deck.wins}-{deck.losses}
-                      </span>
-                      <span className="deck-meta">{getDeckWinRate(deck)} win rate</span>
-                    </td>
-                    <td>{formatUpdatedAt(deck.updatedAt)}</td>
-                    <td>
-                      <div className="row-actions">
-                        <button className="button-text" onClick={() => startEditing(deck)}>
-                          Edit
-                        </button>
-                        <button className="button-danger" onClick={() => deleteDeck(deck.deckId)}>
-                          Delete Deck
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {decks.map((deck) => {
+                  const isUpdatingRecord = recordUpdatingDeckId === deck.deckId
+
+                  return (
+                    <tr key={deck.deckId}>
+                      <td>
+                        <strong className="deck-name">{deck.deckName}</strong>
+                        <span className="deck-meta">Bracket {deck.bracket}</span>
+                      </td>
+                      <td>{deck.commander}</td>
+                      <td>
+                        <span className="badge badge-color">{getColorIdentityLabel(deck)}</span>
+                      </td>
+                      <td>{deck.archetypeName ?? 'Unassigned'}</td>
+                      <td>
+                        <div className="record-control">
+                          <div>
+                            <span className="record-text">
+                              {deck.wins}-{deck.losses}
+                            </span>
+                            <span className="deck-meta">{getDeckWinRate(deck)} win rate</span>
+                          </div>
+                          <div className="record-stepper-group" aria-label={`Update ${deck.deckName} record`}>
+                            <div className="record-stepper">
+                              <span>W</span>
+                              <button
+                                type="button"
+                                onClick={() => updateDeckRecord(deck, deck.wins - 1, deck.losses)}
+                                disabled={isUpdatingRecord || deck.wins === 0}
+                                title="Remove win"
+                                aria-label={`Remove win from ${deck.deckName}`}
+                              >
+                                -
+                              </button>
+                              <strong>{deck.wins}</strong>
+                              <button
+                                type="button"
+                                onClick={() => updateDeckRecord(deck, deck.wins + 1, deck.losses)}
+                                disabled={isUpdatingRecord}
+                                title="Add win"
+                                aria-label={`Add win to ${deck.deckName}`}
+                              >
+                                +
+                              </button>
+                            </div>
+                            <div className="record-stepper">
+                              <span>L</span>
+                              <button
+                                type="button"
+                                onClick={() => updateDeckRecord(deck, deck.wins, deck.losses - 1)}
+                                disabled={isUpdatingRecord || deck.losses === 0}
+                                title="Remove loss"
+                                aria-label={`Remove loss from ${deck.deckName}`}
+                              >
+                                -
+                              </button>
+                              <strong>{deck.losses}</strong>
+                              <button
+                                type="button"
+                                onClick={() => updateDeckRecord(deck, deck.wins, deck.losses + 1)}
+                                disabled={isUpdatingRecord}
+                                title="Add loss"
+                                aria-label={`Add loss to ${deck.deckName}`}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>{formatUpdatedAt(deck.updatedAt)}</td>
+                      <td>
+                        <div className="row-actions">
+                          <button className="button-text" onClick={() => startEditing(deck)}>
+                            Edit
+                          </button>
+                          <button className="button-danger" onClick={() => deleteDeck(deck.deckId)}>
+                            Delete Deck
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -758,26 +855,6 @@ function App() {
                 </option>
               ))}
             </select>
-          </label>
-          <label>
-            <span>Wins</span>
-            <input
-              type="number"
-              min={0}
-              value={formState.wins}
-              onChange={(event) => setFormState({ ...formState, wins: Number(event.target.value) })}
-              required
-            />
-          </label>
-          <label>
-            <span>Losses</span>
-            <input
-              type="number"
-              min={0}
-              value={formState.losses}
-              onChange={(event) => setFormState({ ...formState, losses: Number(event.target.value) })}
-              required
-            />
           </label>
           <label className="full-width">
             <span>Description</span>
