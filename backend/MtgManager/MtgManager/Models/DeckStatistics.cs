@@ -30,3 +30,20 @@ public class ArchetypeStat
     public string ArchetypeName { get; set; } = string.Empty;
     public int DeckCount { get; set; }
 }
+
+// Public aggregate statistics shown on the landing page without exposing user-private deck lists.
+public class PublicDeckStatistics
+{
+    public int TotalDecks { get; set; }
+    public int TotalUsers { get; set; }
+    public int TotalCommanders { get; set; }
+    public int TotalGames { get; set; }
+    public List<TopCommanderStat> TopCommanders { get; set; } = [];
+}
+
+// Counts how often a commander has been submitted across all users.
+public class TopCommanderStat
+{
+    public string Commander { get; set; } = string.Empty;
+    public int DeckCount { get; set; }
+}

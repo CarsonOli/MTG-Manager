@@ -49,3 +49,11 @@ export type DeckStats = {
   colorUsage: { colorCode: string; colorName: string; deckCount: number }[]
   archetypeBreakdown: { archetypeName: string; deckCount: number }[]
 }
+
+export type PublicDeckStats = {
+  totalDecks: number
+  totalUsers: number
+  totalCommanders: number
+  totalGames: number
+  topCommanders: { commander: string; deckCount: number }[]
+}

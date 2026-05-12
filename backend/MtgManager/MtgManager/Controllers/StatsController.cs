@@ -19,6 +19,57 @@ public class StatsController : ControllerBase
         this.connectionFactory = connectionFactory;
     }
 
+    [AllowAnonymous]
+    [HttpGet("public")]
+    public async Task<ActionResult<PublicDeckStatistics>> GetPublicDeckStats()
+    {
+        await using var connection = connectionFactory.CreateConnection();
+        await connection.OpenAsync();
+
+        var stats = new PublicDeckStatistics();
+
+        // Aggregates site-wide counts for the public landing page without returning private deck rows.
+        const string totalsSql = @"
+            SELECT COUNT(*),
+                   COUNT(DISTINCT user_id),
+                   COUNT(DISTINCT commander),
+                   COALESCE(SUM(wins + losses), 0)
+            FROM decks;";
+
+        await using (var totalsCommand = new NpgsqlCommand(totalsSql, connection))
+        {
+            await using var reader = await totalsCommand.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                stats.TotalDecks = Convert.ToInt32(reader.GetInt64(0));
+                stats.TotalUsers = Convert.ToInt32(reader.GetInt64(1));
+                stats.TotalCommanders = Convert.ToInt32(reader.GetInt64(2));
+                stats.TotalGames = Convert.ToInt32(reader.GetInt64(3));
+            }
+        }
+
+        // Shows the most submitted commanders while preserving all user-specific deck details.
+        const string commandersSql = @"
+            SELECT commander, COUNT(*)
+            FROM decks
+            GROUP BY commander
+            ORDER BY COUNT(*) DESC, commander
+            LIMIT 5;";
+
+        await using var commandersCommand = new NpgsqlCommand(commandersSql, connection);
+        await using var commandersReader = await commandersCommand.ExecuteReaderAsync();
+        while (await commandersReader.ReadAsync())
+        {
+            stats.TopCommanders.Add(new TopCommanderStat
+            {
+                Commander = commandersReader.GetString(0),
+                DeckCount = Convert.ToInt32(commandersReader.GetInt64(1))
+            });
+        }
+
+        return Ok(stats);
+    }
+
     [HttpGet("decks")]
     public async Task<ActionResult<DeckStatistics>> GetDeckStats()
     {
