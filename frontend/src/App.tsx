@@ -29,6 +29,41 @@ const initialFormState: FormState = {
   description: '',
 }
 
+// Calculates a readable win-rate label from the deck's persisted record.
+function getDeckWinRate(deck: Deck) {
+  const totalGames = deck.wins + deck.losses
+
+  if (totalGames === 0) {
+    return '0%'
+  }
+
+  return `${Math.round((deck.wins / totalGames) * 100)}%`
+}
+
+// Keeps color identity readable so colored styling is never the only signal.
+function getColorIdentityLabel(deck: Deck) {
+  if (!deck.colorIdentityCode) {
+    return deck.colorIdentityName || 'Colorless'
+  }
+
+  return `${deck.colorIdentityName} (${deck.colorIdentityCode})`
+}
+
+// Formats API timestamps for compact dashboard metadata.
+function formatUpdatedAt(value: string) {
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown'
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date)
+}
+
 function App() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('mtgToken'))
   const [username, setUsername] = useState<string>(() => localStorage.getItem('mtgUsername') ?? '')
@@ -209,14 +244,37 @@ function App() {
 
   function renderHomeView() {
     return (
-      <section className="card">
-        <h2>Home</h2>
-        <p>Track your Commander collection, keep win/loss records, and review trends over time.</p>
-        <div className="stats-grid">
-          <article className="card"><h3>Decks</h3><p>{stats?.totalDecks ?? 0}</p></article>
-          <article className="card"><h3>Wins</h3><p>{stats?.totalWins ?? 0}</p></article>
-          <article className="card"><h3>Losses</h3><p>{stats?.totalLosses ?? 0}</p></article>
-          <article className="card"><h3>Win Rate</h3><p>{stats?.overallWinRate ?? 0}%</p><small>{totalGames} games tracked</small></article>
+      <section className="panel hero-panel" aria-labelledby="home-heading">
+        <div className="panel-heading">
+          <span className="eyebrow">Command Center</span>
+          <h2 id="home-heading">Your deck room, sharpened.</h2>
+          <p>
+            Track Commander decks, monitor win/loss records, and spot collection trends from a
+            focused dashboard.
+          </p>
+        </div>
+
+        <div className="stats-grid" aria-label="Deck overview">
+          <article className="stat-card accent-red">
+            <span className="stat-label">Decks</span>
+            <strong>{stats?.totalDecks ?? 0}</strong>
+            <span className="stat-note">Saved lists</span>
+          </article>
+          <article className="stat-card accent-green">
+            <span className="stat-label">Wins</span>
+            <strong>{stats?.totalWins ?? 0}</strong>
+            <span className="stat-note">Recorded games</span>
+          </article>
+          <article className="stat-card accent-purple">
+            <span className="stat-label">Losses</span>
+            <strong>{stats?.totalLosses ?? 0}</strong>
+            <span className="stat-note">Recorded games</span>
+          </article>
+          <article className="stat-card accent-blue">
+            <span className="stat-label">Win Rate</span>
+            <strong>{stats?.overallWinRate ?? 0}%</strong>
+            <span className="stat-note">{totalGames} games tracked</span>
+          </article>
         </div>
       </section>
     )
@@ -225,72 +283,181 @@ function App() {
   function renderDecksView() {
     return (
       <>
-        <section className="card">
-          <h2>{editingDeckId ? 'Edit Deck' : 'Add Deck'}</h2>
+        <section className="panel" aria-labelledby="deck-form-heading">
+          <div className="panel-heading compact">
+            <span className="eyebrow">Deck File</span>
+            <h2 id="deck-form-heading">{editingDeckId ? 'Edit Deck' : 'Add Deck'}</h2>
+            <p>Visible labels and simple fields keep deck entry fast and keyboard friendly.</p>
+          </div>
+
           <form onSubmit={handleDeckSubmit} className="deck-form">
-            <label>Deck Name<input value={formState.deckName} onChange={(event) => setFormState({ ...formState, deckName: event.target.value })} required maxLength={120} /></label>
-            <label>Commander<input value={formState.commander} onChange={(event) => setFormState({ ...formState, commander: event.target.value })} required maxLength={120} /></label>
-            <label>Bracket<input type="number" min={1} max={5} value={formState.bracket} onChange={(event) => setFormState({ ...formState, bracket: Number(event.target.value) })} required /></label>
-            <label>Color Identity
-              <select value={formState.colorIdentityId} onChange={(event) => setFormState({ ...formState, colorIdentityId: Number(event.target.value) })} required>
+            <label>
+              <span>Deck Name</span>
+              <input
+                value={formState.deckName}
+                onChange={(event) => setFormState({ ...formState, deckName: event.target.value })}
+                required
+                maxLength={120}
+              />
+            </label>
+            <label>
+              <span>Commander</span>
+              <input
+                value={formState.commander}
+                onChange={(event) => setFormState({ ...formState, commander: event.target.value })}
+                required
+                maxLength={120}
+              />
+            </label>
+            <label>
+              <span>Bracket</span>
+              <input
+                type="number"
+                min={1}
+                max={5}
+                value={formState.bracket}
+                onChange={(event) => setFormState({ ...formState, bracket: Number(event.target.value) })}
+                required
+              />
+            </label>
+            <label>
+              <span>Color Identity</span>
+              <select
+                value={formState.colorIdentityId}
+                onChange={(event) =>
+                  setFormState({ ...formState, colorIdentityId: Number(event.target.value) })
+                }
+                required
+              >
                 {colorIdentities.map((item) => (
-                  <option key={item.id} value={item.id}>{item.code ? `${item.code} - ${item.name}` : item.name}</option>
+                  <option key={item.id} value={item.id}>
+                    {item.code ? `${item.code} - ${item.name}` : item.name}
+                  </option>
                 ))}
               </select>
             </label>
-            <label>Archetype
-              <select value={formState.archetypeId ?? ''} onChange={(event) => setFormState({ ...formState, archetypeId: event.target.value ? Number(event.target.value) : null })}>
+            <label>
+              <span>Archetype</span>
+              <select
+                value={formState.archetypeId ?? ''}
+                onChange={(event) =>
+                  setFormState({
+                    ...formState,
+                    archetypeId: event.target.value ? Number(event.target.value) : null,
+                  })
+                }
+              >
                 <option value="">Unassigned</option>
                 {archetypes.map((item) => (
-                  <option key={item.id} value={item.id}>{item.name}</option>
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
                 ))}
               </select>
             </label>
-            <label>Wins<input type="number" min={0} value={formState.wins} onChange={(event) => setFormState({ ...formState, wins: Number(event.target.value) })} required /></label>
-            <label>Losses<input type="number" min={0} value={formState.losses} onChange={(event) => setFormState({ ...formState, losses: Number(event.target.value) })} required /></label>
-            <label className="full-width">Description
-              <textarea value={formState.description} onChange={(event) => setFormState({ ...formState, description: event.target.value })} rows={3} maxLength={5000} />
+            <label>
+              <span>Wins</span>
+              <input
+                type="number"
+                min={0}
+                value={formState.wins}
+                onChange={(event) => setFormState({ ...formState, wins: Number(event.target.value) })}
+                required
+              />
+            </label>
+            <label>
+              <span>Losses</span>
+              <input
+                type="number"
+                min={0}
+                value={formState.losses}
+                onChange={(event) => setFormState({ ...formState, losses: Number(event.target.value) })}
+                required
+              />
+            </label>
+            <label className="full-width">
+              <span>Description</span>
+              <textarea
+                value={formState.description}
+                onChange={(event) => setFormState({ ...formState, description: event.target.value })}
+                rows={3}
+                maxLength={5000}
+              />
             </label>
 
             <div className="form-actions full-width">
-              <button type="submit">{editingDeckId ? 'Update Deck' : 'Create Deck'}</button>
-              {editingDeckId && <button type="button" className="secondary" onClick={resetDeckForm}>Cancel</button>}
+              <button type="submit" className="button-primary">
+                {editingDeckId ? 'Update Deck' : 'Create Deck'}
+              </button>
+              {editingDeckId && (
+                <button type="button" className="button-secondary" onClick={resetDeckForm}>
+                  Cancel
+                </button>
+              )}
             </div>
           </form>
         </section>
 
-        <section className="card">
-          <h2>Your Decks</h2>
+        <section className="panel" aria-labelledby="deck-list-heading">
+          <div className="panel-heading compact">
+            <span className="eyebrow">Library</span>
+            <h2 id="deck-list-heading">Your Decks</h2>
+          </div>
+
           {decks.length === 0 ? (
-            <p>No decks yet. Add your first Commander deck above.</p>
+            <div className="empty-state">
+              <strong>No decks yet.</strong>
+              <p>Create your first Commander deck above to start tracking records and trends.</p>
+            </div>
           ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Commander</th>
-                  <th>Colors</th>
-                  <th>Archetype</th>
-                  <th>Record</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {decks.map((deck) => (
-                  <tr key={deck.deckId}>
-                    <td>{deck.deckName}</td>
-                    <td>{deck.commander}</td>
-                    <td>{deck.colorIdentityCode}</td>
-                    <td>{deck.archetypeName ?? 'Unassigned'}</td>
-                    <td>{deck.wins}-{deck.losses}</td>
-                    <td>
-                      <button className="text-button" onClick={() => startEditing(deck)}>Edit</button>
-                      <button className="text-button danger" onClick={() => deleteDeck(deck.deckId)}>Delete</button>
-                    </td>
+            <div className="table-wrap">
+              <table className="deck-table">
+                <caption className="sr-only">Saved Commander decks with records and actions</caption>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Commander</th>
+                    <th>Colors</th>
+                    <th>Archetype</th>
+                    <th>Record</th>
+                    <th>Updated</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {decks.map((deck) => (
+                    <tr key={deck.deckId}>
+                      <td>
+                        <strong className="deck-name">{deck.deckName}</strong>
+                        <span className="deck-meta">Bracket {deck.bracket}</span>
+                      </td>
+                      <td>{deck.commander}</td>
+                      <td>
+                        <span className="badge badge-color">{getColorIdentityLabel(deck)}</span>
+                      </td>
+                      <td>{deck.archetypeName ?? 'Unassigned'}</td>
+                      <td>
+                        <span className="record-text">
+                          {deck.wins}-{deck.losses}
+                        </span>
+                        <span className="deck-meta">{getDeckWinRate(deck)} win rate</span>
+                      </td>
+                      <td>{formatUpdatedAt(deck.updatedAt)}</td>
+                      <td>
+                        <div className="row-actions">
+                          <button className="button-text" onClick={() => startEditing(deck)}>
+                            Edit
+                          </button>
+                          <button className="button-danger" onClick={() => deleteDeck(deck.deckId)}>
+                            Delete Deck
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
       </>
@@ -299,43 +466,74 @@ function App() {
 
   function renderStatsView() {
     return (
-      <section className="card stats-lists">
-        <div>
-          <h2>By Bracket</h2>
-          <ul>{(stats?.bracketBreakdown ?? []).map((item) => <li key={item.bracket}>Bracket {item.bracket}: {item.deckCount}</li>)}</ul>
+      <section className="panel stats-lists" aria-labelledby="stats-heading">
+        <div className="panel-heading compact stats-heading">
+          <span className="eyebrow">Intel</span>
+          <h2 id="stats-heading">Deck Statistics</h2>
+          <p>Breakdowns use text and counts so the data remains clear without color alone.</p>
         </div>
-        <div>
-          <h2>By Color</h2>
-          <ul>{(stats?.colorUsage ?? []).map((item) => <li key={item.colorCode}>{item.colorCode} ({item.colorName}): {item.deckCount}</li>)}</ul>
-        </div>
-        <div>
-          <h2>By Archetype</h2>
-          <ul>{(stats?.archetypeBreakdown ?? []).map((item) => <li key={item.archetypeName}>{item.archetypeName}: {item.deckCount}</li>)}</ul>
-        </div>
+
+        <article className="stat-list-card">
+          <h3>By Bracket</h3>
+          <ul>
+            {(stats?.bracketBreakdown ?? []).map((item) => (
+              <li key={item.bracket}>
+                <span>Bracket {item.bracket}</span>
+                <strong>{item.deckCount}</strong>
+              </li>
+            ))}
+          </ul>
+        </article>
+        <article className="stat-list-card">
+          <h3>By Color</h3>
+          <ul>
+            {(stats?.colorUsage ?? []).map((item) => (
+              <li key={item.colorCode}>
+                <span>
+                  {item.colorName} ({item.colorCode || 'C'})
+                </span>
+                <strong>{item.deckCount}</strong>
+              </li>
+            ))}
+          </ul>
+        </article>
+        <article className="stat-list-card">
+          <h3>By Archetype</h3>
+          <ul>
+            {(stats?.archetypeBreakdown ?? []).map((item) => (
+              <li key={item.archetypeName}>
+                <span>{item.archetypeName}</span>
+                <strong>{item.deckCount}</strong>
+              </li>
+            ))}
+          </ul>
+        </article>
       </section>
     )
   }
 
   if (!token) {
     return (
-      <main className="container">
-        <section className="card auth-card">
-          <h1>Commander Deck Manager</h1>
-          <p>Track your decks, win/loss records, and collection trends in one place.</p>
+      <main className="app-shell auth-shell">
+        <section className="auth-panel" aria-labelledby="auth-heading">
+          <img className="brand-logo" src="/site-logo-full.png" alt="My Deck Manager" />
+          <span className="eyebrow">Private Deck Dashboard</span>
+          <h1 id="auth-heading">My Deck Manager</h1>
+          <p>Track decks, win/loss records, and collection trends in one focused command center.</p>
 
           <form onSubmit={handleAuthSubmit} className="form-grid">
             {authMode === 'register' && (
               <>
                 <label>
-                  Name
+                  <span>Name</span>
                   <input name="name" required minLength={2} maxLength={120} />
                 </label>
                 <label>
-                  Username
+                  <span>Username</span>
                   <input name="username" required minLength={3} maxLength={60} />
                 </label>
                 <label>
-                  Email
+                  <span>Email</span>
                   <input name="email" type="email" required maxLength={254} />
                 </label>
               </>
@@ -343,24 +541,31 @@ function App() {
 
             {authMode === 'login' && (
               <label>
-                Username or Email
+                <span>Username or Email</span>
                 <input name="usernameOrEmail" required />
               </label>
             )}
 
             <label>
-              Password
+              <span>Password</span>
               <input name="password" type="password" required minLength={8} />
             </label>
 
-            {authError && <p className="error-text">{authError}</p>}
+            {authError && (
+              <p className="error-text" role="alert">
+                {authError}
+              </p>
+            )}
 
-            <button type="submit" disabled={loading}>
+            <button type="submit" className="button-primary" disabled={loading}>
               {loading ? 'Working...' : authMode === 'login' ? 'Login' : 'Create Account'}
             </button>
           </form>
 
-          <button className="text-button" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>
+          <button
+            className="button-text auth-toggle"
+            onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
+          >
             {authMode === 'login' ? 'Need an account? Register' : 'Already have an account? Login'}
           </button>
         </section>
@@ -369,21 +574,50 @@ function App() {
   }
 
   return (
-    <main className="container">
+    <main className="app-shell dashboard-shell">
       <header className="top-bar">
-        <div>
-          <h1>Commander Deck Manager</h1>
-          <p>Welcome back, {username}.</p>
+        <div className="brand-lockup">
+          <img src="/site-logo-compass.png" alt="" aria-hidden="true" />
+          <div>
+            <span className="eyebrow">My Deck Manager</span>
+            <h1>Deck Dashboard</h1>
+            <p>Welcome back, {username}.</p>
+          </div>
         </div>
-        <div className="top-actions">
-          <button className={currentView === 'home' ? 'secondary' : ''} onClick={() => setCurrentView('home')}>Home</button>
-          <button className={currentView === 'decks' ? 'secondary' : ''} onClick={() => setCurrentView('decks')}>Decks</button>
-          <button className={currentView === 'stats' ? 'secondary' : ''} onClick={() => setCurrentView('stats')}>Stats</button>
-          <button onClick={signOut}>Sign Out</button>
-        </div>
+
+        <nav className="top-actions" aria-label="Primary">
+          <button
+            className={`nav-button ${currentView === 'home' ? 'is-active' : ''}`}
+            aria-current={currentView === 'home' ? 'page' : undefined}
+            onClick={() => setCurrentView('home')}
+          >
+            Home
+          </button>
+          <button
+            className={`nav-button ${currentView === 'decks' ? 'is-active' : ''}`}
+            aria-current={currentView === 'decks' ? 'page' : undefined}
+            onClick={() => setCurrentView('decks')}
+          >
+            Decks
+          </button>
+          <button
+            className={`nav-button ${currentView === 'stats' ? 'is-active' : ''}`}
+            aria-current={currentView === 'stats' ? 'page' : undefined}
+            onClick={() => setCurrentView('stats')}
+          >
+            Stats
+          </button>
+          <button className="button-secondary" onClick={signOut}>
+            Sign Out
+          </button>
+        </nav>
       </header>
 
-      {actionError && <p className="error-text">{actionError}</p>}
+      {actionError && (
+        <p className="error-text dashboard-error" role="alert">
+          {actionError}
+        </p>
+      )}
 
       {currentView === 'home' && renderHomeView()}
       {currentView === 'decks' && renderDecksView()}
