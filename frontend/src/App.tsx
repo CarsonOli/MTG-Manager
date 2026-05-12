@@ -5,6 +5,7 @@ import { apiRequest } from './api'
 import {
   getCommanderCardByExactName,
   getCommanderColorIdentityCode,
+  getCommanderColorIdentityLookup,
   searchCommanderCards,
   type CommanderCard,
 } from './scryfall'
@@ -85,6 +86,11 @@ function formatUpdatedAt(value: string) {
 // Gives screen readers useful context without relying on card art alone.
 function getCommanderImageAlt(card: CommanderCard) {
   return `${card.name} card image`
+}
+
+// Shows the database's familiar display code when lookup data is available.
+function getCommanderDisplayColorIdentityCode(card: CommanderCard, colorIdentities: LookupItem[]) {
+  return getCommanderColorIdentityLookup(card, colorIdentities)?.code ?? getCommanderColorIdentityCode(card)
 }
 
 function App() {
@@ -286,8 +292,7 @@ function App() {
   }
 
   function selectCommander(card: CommanderCard) {
-    const commanderColorCode = getCommanderColorIdentityCode(card)
-    const matchingColorIdentity = colorIdentities.find((item) => item.code === commanderColorCode)
+    const matchingColorIdentity = getCommanderColorIdentityLookup(card, colorIdentities)
 
     setSelectedCommanderCard(card)
     setCommanderResults([])
@@ -525,7 +530,7 @@ function App() {
                     <span className="top-commander-name">
                       <span>{item.commander}</span>
                       {commanderCard && (
-                        <small>{getCommanderColorIdentityCode(commanderCard)}</small>
+                        <small>{getCommanderDisplayColorIdentityCode(commanderCard, colorIdentities)}</small>
                       )}
                     </span>
                     <strong>{item.deckCount} submitted</strong>
@@ -682,7 +687,9 @@ function App() {
                       <strong>{card.name}</strong>
                       <small>{card.typeLine}</small>
                     </span>
-                    <span className="badge badge-color">{getCommanderColorIdentityCode(card)}</span>
+                    <span className="badge badge-color">
+                      {getCommanderDisplayColorIdentityCode(card, colorIdentities)}
+                    </span>
                   </button>
                 ))}
               </div>

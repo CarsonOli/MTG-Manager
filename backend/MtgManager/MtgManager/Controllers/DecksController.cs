@@ -14,6 +14,7 @@ namespace MtgManager.Controllers;
 [Route("api/[controller]")]
 public class DecksController : ControllerBase
 {
+    private static readonly char[] ColorOrder = ['W', 'U', 'B', 'R', 'G'];
     private readonly DbConnectionFactory connectionFactory;
     private readonly ScryfallCommanderService scryfallCommanderService;
 
@@ -272,6 +273,7 @@ public class DecksController : ControllerBase
     }
 
     // Keeps stored color identity in sync with the selected Scryfall commander.
+    // Scryfall and the local lookup table can order the same colors differently, so compare color sets.
     private static async Task<string?> ValidateCommanderColorIdentity(
         NpgsqlConnection connection,
         short colorIdentityId,
@@ -287,9 +289,48 @@ public class DecksController : ControllerBase
             return "Selected color identity does not exist.";
         }
 
-        return string.Equals(selectedColorIdentityCode, expectedColorIdentityCode, StringComparison.Ordinal)
-            ? null
-            : $"Selected color identity must match the commander ({expectedColorIdentityCode}).";
+        var selectedNormalizedCode = NormalizeColorIdentityCode(selectedColorIdentityCode);
+        var expectedNormalizedCode = NormalizeColorIdentityCode(expectedColorIdentityCode);
+        if (string.Equals(selectedNormalizedCode, expectedNormalizedCode, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var expectedDisplayCode = await GetDisplayColorIdentityCode(connection, expectedNormalizedCode)
+            ?? expectedColorIdentityCode;
+
+        return $"Selected color identity must match the commander ({expectedDisplayCode}).";
+    }
+
+    private static string NormalizeColorIdentityCode(string colorIdentityCode)
+    {
+        var uppercaseCode = colorIdentityCode.ToUpperInvariant();
+        var normalizedCode = string.Concat(ColorOrder.Where(color => uppercaseCode.Contains(color)));
+
+        return string.IsNullOrWhiteSpace(normalizedCode) ? "C" : normalizedCode;
+    }
+
+    // Uses the database's display code in validation errors, such as BGU for Sultai instead of UBG.
+    private static async Task<string?> GetDisplayColorIdentityCode(NpgsqlConnection connection, string normalizedColorIdentityCode)
+    {
+        const string sql = @"
+            SELECT code
+            FROM color_identities
+            WHERE white = @white
+              AND blue = @blue
+              AND black = @black
+              AND red = @red
+              AND green = @green
+            LIMIT 1;";
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("white", normalizedColorIdentityCode.Contains('W'));
+        command.Parameters.AddWithValue("blue", normalizedColorIdentityCode.Contains('U'));
+        command.Parameters.AddWithValue("black", normalizedColorIdentityCode.Contains('B'));
+        command.Parameters.AddWithValue("red", normalizedColorIdentityCode.Contains('R'));
+        command.Parameters.AddWithValue("green", normalizedColorIdentityCode.Contains('G'));
+
+        return await command.ExecuteScalarAsync() as string;
     }
 
     private static async Task<DeckRecord?> GetDeckById(NpgsqlConnection connection, long deckId, long userId)

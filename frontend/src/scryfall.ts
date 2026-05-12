@@ -1,6 +1,10 @@
 const scryfallBaseUrl = 'https://api.scryfall.com'
 const colorOrder = ['W', 'U', 'B', 'R', 'G']
 
+type ColorIdentityLookup = {
+  code?: string
+}
+
 type ScryfallImageUris = {
   small?: string
   normal?: string
@@ -115,7 +119,27 @@ export async function getCommanderCardByExactName(name: string, signal?: AbortSi
   return mapCommanderCard((await response.json()) as ScryfallCard)
 }
 
-// Matches Scryfall color identity ordering to the database's WUBRG/C lookup codes.
+// Normalizes color codes so Scryfall's order and the database's display order compare by color set.
+export function normalizeColorIdentityCode(colorIdentityCode: string) {
+  const uppercaseCode = colorIdentityCode.toUpperCase()
+  const normalizedCode = colorOrder.filter((color) => uppercaseCode.includes(color)).join('')
+
+  return normalizedCode || 'C'
+}
+
+// Matches Scryfall color identity ordering to a stable WUBRG/C code for comparisons.
 export function getCommanderColorIdentityCode(card: CommanderCard) {
-  return colorOrder.filter((color) => card.colorIdentity.includes(color)).join('') || 'C'
+  return normalizeColorIdentityCode(card.colorIdentity.join(''))
+}
+
+// Finds the local lookup record even when its display code uses guild/shard/clan ordering.
+export function getCommanderColorIdentityLookup<T extends ColorIdentityLookup>(
+  card: CommanderCard,
+  colorIdentities: T[],
+) {
+  const commanderColorCode = getCommanderColorIdentityCode(card)
+
+  return colorIdentities.find(
+    (item) => item.code && normalizeColorIdentityCode(item.code) === commanderColorCode,
+  )
 }
