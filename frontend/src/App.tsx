@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { CSSProperties, FormEvent } from 'react'
 import './App.css'
 import { apiRequest } from './api'
 import {
@@ -33,6 +33,19 @@ type FormState = {
   description: string
 }
 
+type ChartDatum = {
+  label: string
+  value: number
+  detail?: string
+  accent: string
+}
+
+type ChartStyle = CSSProperties & {
+  '--bar-value'?: string
+  '--chart-color'?: string
+  '--donut-gradient'?: string
+}
+
 const initialFormState: FormState = {
   deckName: '',
   commander: '',
@@ -44,8 +57,135 @@ const initialFormState: FormState = {
   description: '',
 }
 
+const chartPalette = ['#ef233c', '#22c55e', '#4f46e5', '#f59e0b', '#14b8a6', '#8e44ad']
+const bracketChartColors = ['#22c55e', '#14b8a6', '#f59e0b', '#ef233c', '#8e44ad']
+
+const mtgColorAccents: Record<string, string> = {
+  W: '#f8fafc',
+  U: '#3b82f6',
+  B: '#8e44ad',
+  R: '#ef233c',
+  G: '#22c55e',
+  C: '#94a3b8',
+}
+
 function isProtectedView(view: AppView): view is ProtectedView {
   return view === 'decks' || view === 'deck-form' || view === 'stats'
+}
+
+// Keeps chart math in one place so each visual handles empty data consistently.
+function getChartTotal(items: ChartDatum[]) {
+  return items.reduce((total, item) => total + item.value, 0)
+}
+
+function getChartPercent(value: number, total: number) {
+  if (total === 0) {
+    return 0
+  }
+
+  return Math.round((value / total) * 100)
+}
+
+function getChartAccent(index: number) {
+  return chartPalette[index % chartPalette.length]
+}
+
+// Picks a recognizable MTG-inspired accent for color identity charts.
+function getColorIdentityAccent(colorCode: string, index: number) {
+  const normalizedCode = colorCode || 'C'
+
+  if (normalizedCode.length === 1) {
+    return mtgColorAccents[normalizedCode] ?? getChartAccent(index)
+  }
+
+  return getChartAccent(index)
+}
+
+function getDonutGradient(items: ChartDatum[], total: number) {
+  let currentPercent = 0
+
+  const slices = items.map((item, index) => {
+    const startPercent = currentPercent
+    const slicePercent = index === items.length - 1 ? 100 - currentPercent : (item.value / total) * 100
+    currentPercent += slicePercent
+
+    return `${item.accent} ${startPercent.toFixed(2)}% ${currentPercent.toFixed(2)}%`
+  })
+
+  return `conic-gradient(${slices.join(', ')})`
+}
+
+// Renders count-based breakdowns as proportional bars with exact values retained.
+function BreakdownBarChart({ items, emptyMessage }: { items: ChartDatum[]; emptyMessage: string }) {
+  const total = getChartTotal(items)
+  const maxValue = Math.max(...items.map((item) => item.value), 0)
+
+  if (total === 0 || maxValue === 0) {
+    return <p className="chart-empty">{emptyMessage}</p>
+  }
+
+  return (
+    <ul className="chart-bar-list">
+      {items.map((item) => {
+        const barWidth = `${Math.round((item.value / maxValue) * 100)}%`
+        const percentLabel = `${getChartPercent(item.value, total)}% of decks`
+
+        return (
+          <li
+            key={item.label}
+            style={{ '--bar-value': barWidth, '--chart-color': item.accent } as ChartStyle}
+          >
+            <div className="chart-bar-label-row">
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </div>
+            <div className="chart-bar-track" aria-hidden="true">
+              <span />
+            </div>
+            <small>{item.detail ?? percentLabel}</small>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+// Uses a CSS donut so the color spread is scannable while the legend remains readable.
+function BreakdownDonutChart({ items, emptyMessage }: { items: ChartDatum[]; emptyMessage: string }) {
+  const total = getChartTotal(items)
+
+  if (total === 0) {
+    return <p className="chart-empty">{emptyMessage}</p>
+  }
+
+  return (
+    <div className="donut-layout">
+      <div
+        className="donut-chart"
+        role="img"
+        aria-label={`Color identity chart covering ${total} saved decks`}
+        style={{ '--donut-gradient': getDonutGradient(items, total) } as ChartStyle}
+      >
+        <div className="donut-hole">
+          <strong>{total}</strong>
+          <span>Decks</span>
+        </div>
+      </div>
+
+      <ul className="donut-legend">
+        {items.map((item) => (
+          <li key={item.label} style={{ '--chart-color': item.accent } as ChartStyle}>
+            <span className="legend-swatch" aria-hidden="true" />
+            <span>{item.label}</span>
+            <span className="legend-count">
+              <strong>{item.value}</strong>
+              <small>{getChartPercent(item.value, total)}%</small>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 // Calculates a readable win-rate label from the deck's persisted record.
@@ -882,6 +1022,33 @@ function App() {
   }
 
   function renderStatsView() {
+    const totalDecks = stats?.totalDecks ?? 0
+    const bracketChartItems: ChartDatum[] = (stats?.bracketBreakdown ?? [])
+      .slice()
+      .sort((first, second) => first.bracket - second.bracket)
+      .map((item, index) => ({
+        label: `Bracket ${item.bracket}`,
+        value: item.deckCount,
+        accent: bracketChartColors[index % bracketChartColors.length],
+      }))
+    const colorChartItems: ChartDatum[] = (stats?.colorUsage ?? []).map((item, index) => {
+      const colorCode = item.colorCode || 'C'
+
+      return {
+        label: `${item.colorName} (${colorCode})`,
+        value: item.deckCount,
+        accent: getColorIdentityAccent(colorCode, index),
+      }
+    })
+    const archetypeChartItems: ChartDatum[] = (stats?.archetypeBreakdown ?? [])
+      .slice()
+      .sort((first, second) => second.deckCount - first.deckCount)
+      .map((item, index) => ({
+        label: item.archetypeName || 'Unassigned',
+        value: item.deckCount,
+        accent: getChartAccent(index),
+      }))
+
     return (
       <section className="panel" aria-labelledby="stats-heading">
         <div className="panel-heading compact">
@@ -913,41 +1080,29 @@ function App() {
           </article>
         </div>
 
-        <div className="stats-lists">
-          <article className="stat-list-card">
-            <h3>By Bracket</h3>
-            <ul>
-              {(stats?.bracketBreakdown ?? []).map((item) => (
-                <li key={item.bracket}>
-                  <span>Bracket {item.bracket}</span>
-                  <strong>{item.deckCount}</strong>
-                </li>
-              ))}
-            </ul>
+        <div className="stats-charts">
+          <article className="stat-chart-card">
+            <div className="chart-card-heading">
+              <h3>Bracket Spread</h3>
+              <span>{totalDecks} decks</span>
+            </div>
+            <BreakdownBarChart items={bracketChartItems} emptyMessage="No bracket data yet." />
           </article>
-          <article className="stat-list-card">
-            <h3>By Color</h3>
-            <ul>
-              {(stats?.colorUsage ?? []).map((item) => (
-                <li key={item.colorCode}>
-                  <span>
-                    {item.colorName} ({item.colorCode || 'C'})
-                  </span>
-                  <strong>{item.deckCount}</strong>
-                </li>
-              ))}
-            </ul>
+
+          <article className="stat-chart-card">
+            <div className="chart-card-heading">
+              <h3>Color Mix</h3>
+              <span>{colorChartItems.length} identities</span>
+            </div>
+            <BreakdownDonutChart items={colorChartItems} emptyMessage="No color identity data yet." />
           </article>
-          <article className="stat-list-card">
-            <h3>By Archetype</h3>
-            <ul>
-              {(stats?.archetypeBreakdown ?? []).map((item) => (
-                <li key={item.archetypeName}>
-                  <span>{item.archetypeName}</span>
-                  <strong>{item.deckCount}</strong>
-                </li>
-              ))}
-            </ul>
+
+          <article className="stat-chart-card wide">
+            <div className="chart-card-heading">
+              <h3>Archetype Profile</h3>
+              <span>{archetypeChartItems.length} archetypes</span>
+            </div>
+            <BreakdownBarChart items={archetypeChartItems} emptyMessage="No archetype data yet." />
           </article>
         </div>
       </section>
