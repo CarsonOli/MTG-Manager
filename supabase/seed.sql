@@ -43,14 +43,18 @@ ON CONFLICT (code) DO UPDATE SET
     green = EXCLUDED.green;
 
 INSERT INTO archetypes (name, description) VALUES
+('-1/-1 Counters', 'Controls the board by adding negative counters to opponents creatures.'),
+('+1/+1 Counters', 'Buffs creatures by adding counters and wins through combat.'),
 ('Aggro', 'Wins through fast pressure and efficient combat damage.'),
 ('Aristocrats', 'Sacrifices creatures or permanents for incremental value and drain effects.'),
 ('Artifacts', 'Builds around artifact permanents, synergies, and payoffs.'),
 ('Blink', 'Exiles and returns permanents to reuse enter-the-battlefield effects.'),
+('Burn', 'Deals damage directly to opponents in small increments over time'),
 ('Combo', 'Assembles specific card interactions that can win or generate overwhelming advantage.'),
 ('Control', 'Slows the game with removal, counters, and resource denial before winning later.'),
 ('Enchantress', 'Builds around enchantments and cards that reward casting or controlling them.'),
 ('Group Hug', 'Gives resources to other players while steering the table politically.'),
+('Infect', 'Wins by giving each opponent 10 poison counters during the game'),
 ('Lands', 'Uses lands as the central engine for ramp, value, or win conditions.'),
 ('Lifegain', 'Uses life total increases as a resource or payoff engine.'),
 ('Mill', 'Attempts to put opponents cards from library into graveyard as a win condition.'),
@@ -60,6 +64,7 @@ INSERT INTO archetypes (name, description) VALUES
 ('Tokens', 'Creates many creature tokens and uses them for combat, sacrifice, or value.'),
 ('Tribal', 'Focuses on a creature type and cards that reward that type.'),
 ('Voltron', 'Builds around making one commander or creature large and threatening.'),
-('Wheel', 'Forces players to discard and draw new hands for disruption or payoff triggers.')
+('Wheel', 'Forces players to discard and draw new hands for disruption or payoff triggers.'),
+('X-spells', 'Ramps quickly to be able to cast bigger and bigger spells.')
 ON CONFLICT (name) DO UPDATE SET
     description = EXCLUDED.description;
