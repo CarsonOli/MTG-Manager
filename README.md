@@ -69,5 +69,7 @@ Set this environment variable in Vercel:
 ## Database Notes
 
 - Use `schema (2).sql` to create tables and view.
-- Use `seed.sql` to seed lookups and sample records.
+- Use `seed.sql` to seed lookup records.
+- Supabase GitHub integration can use the `supabase/` directory at the repository root.
+- When Supabase asks for the relative path to the directory containing your `supabase/` folder, enter `.`.
 - `decks` includes `wins` and `losses` columns used by deck statistics.

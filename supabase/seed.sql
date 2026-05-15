@@ -1,20 +1,13 @@
--- seed.sql
--- Seed data for color identities, common Commander archetypes, and sample users/decks.
-
-BEGIN;
+-- Supabase seed data for color identities, common Commander archetypes, and sample records.
+-- Lookup rows are idempotent so local resets and repeated seeds stay predictable.
 
 INSERT INTO color_identities (code, name, white, blue, black, red, green) VALUES
--- Colorless
 ('C', 'Colorless', FALSE, FALSE, FALSE, FALSE, FALSE),
-
--- Mono-color
 ('W', 'Mono-White', TRUE, FALSE, FALSE, FALSE, FALSE),
 ('U', 'Mono-Blue', FALSE, TRUE, FALSE, FALSE, FALSE),
 ('B', 'Mono-Black', FALSE, FALSE, TRUE, FALSE, FALSE),
 ('R', 'Mono-Red', FALSE, FALSE, FALSE, TRUE, FALSE),
 ('G', 'Mono-Green', FALSE, FALSE, FALSE, FALSE, TRUE),
-
--- Two-color guilds
 ('WU', 'Azorius', TRUE, TRUE, FALSE, FALSE, FALSE),
 ('UB', 'Dimir', FALSE, TRUE, TRUE, FALSE, FALSE),
 ('BR', 'Rakdos', FALSE, FALSE, TRUE, TRUE, FALSE),
@@ -25,30 +18,29 @@ INSERT INTO color_identities (code, name, white, blue, black, red, green) VALUES
 ('BG', 'Golgari', FALSE, FALSE, TRUE, FALSE, TRUE),
 ('RW', 'Boros', TRUE, FALSE, FALSE, TRUE, FALSE),
 ('GU', 'Simic', FALSE, TRUE, FALSE, FALSE, TRUE),
-
--- Three-color shards
 ('WUB', 'Esper', TRUE, TRUE, TRUE, FALSE, FALSE),
 ('UBR', 'Grixis', FALSE, TRUE, TRUE, TRUE, FALSE),
 ('BRG', 'Jund', FALSE, FALSE, TRUE, TRUE, TRUE),
 ('RGW', 'Naya', TRUE, FALSE, FALSE, TRUE, TRUE),
 ('GWU', 'Bant', TRUE, TRUE, FALSE, FALSE, TRUE),
-
--- Three-color wedges / clans
 ('WBG', 'Abzan', TRUE, FALSE, TRUE, FALSE, TRUE),
 ('URW', 'Jeskai', TRUE, TRUE, FALSE, TRUE, FALSE),
 ('BGU', 'Sultai', FALSE, TRUE, TRUE, FALSE, TRUE),
 ('RWB', 'Mardu', TRUE, FALSE, TRUE, TRUE, FALSE),
 ('GUR', 'Temur', FALSE, TRUE, FALSE, TRUE, TRUE),
-
--- Four-color combinations. These are common Nephilim names.
 ('WUBR', 'Yore-Tiller', TRUE, TRUE, TRUE, TRUE, FALSE),
 ('UBRG', 'Glint-Eye', FALSE, TRUE, TRUE, TRUE, TRUE),
 ('BRGW', 'Dune-Brood', TRUE, FALSE, TRUE, TRUE, TRUE),
 ('RGWU', 'Ink-Treader', TRUE, TRUE, FALSE, TRUE, TRUE),
 ('GWUB', 'Witch-Maw', TRUE, TRUE, TRUE, FALSE, TRUE),
-
--- Five-color
-('WUBRG', 'Five-Color', TRUE, TRUE, TRUE, TRUE, TRUE);
+('WUBRG', 'Five-Color', TRUE, TRUE, TRUE, TRUE, TRUE)
+ON CONFLICT (code) DO UPDATE SET
+    name = EXCLUDED.name,
+    white = EXCLUDED.white,
+    blue = EXCLUDED.blue,
+    black = EXCLUDED.black,
+    red = EXCLUDED.red,
+    green = EXCLUDED.green;
 
 INSERT INTO archetypes (name, description) VALUES
 ('Aggro', 'Wins through fast pressure and efficient combat damage.'),
@@ -68,6 +60,6 @@ INSERT INTO archetypes (name, description) VALUES
 ('Tokens', 'Creates many creature tokens and uses them for combat, sacrifice, or value.'),
 ('Tribal', 'Focuses on a creature type and cards that reward that type.'),
 ('Voltron', 'Builds around making one commander or creature large and threatening.'),
-('Wheel', 'Forces players to discard and draw new hands for disruption or payoff triggers.');
-
-COMMIT;
+('Wheel', 'Forces players to discard and draw new hands for disruption or payoff triggers.')
+ON CONFLICT (name) DO UPDATE SET
+    description = EXCLUDED.description;
