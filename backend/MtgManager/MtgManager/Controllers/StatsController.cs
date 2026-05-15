@@ -124,13 +124,14 @@ public class StatsController : ControllerBase
             }
         }
 
-        // Uses the helper view from schema.sql to count per-color usage by deck identity.
+        // Counts full color identities so each saved deck contributes to exactly one chart slice.
         const string colorSql = @"
-            SELECT color_code, color_name, COUNT(*)
-            FROM deck_individual_colors
-            WHERE user_id = @userId
-            GROUP BY color_code, color_name
-            ORDER BY COUNT(*) DESC, color_code;";
+            SELECT ci.code, ci.name, COUNT(*)
+            FROM decks d
+            JOIN color_identities ci ON ci.color_identity_id = d.color_identity_id
+            WHERE d.user_id = @userId
+            GROUP BY ci.code, ci.name, ci.color_count
+            ORDER BY COUNT(*) DESC, ci.color_count, ci.code;";
 
         await using (var colorCommand = new NpgsqlCommand(colorSql, connection))
         {

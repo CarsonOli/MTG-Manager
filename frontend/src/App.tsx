@@ -21,6 +21,7 @@ import type {
 type AuthMode = 'login' | 'register'
 type AppView = 'home' | 'login' | 'decks' | 'deck-form' | 'stats'
 type ProtectedView = 'decks' | 'deck-form' | 'stats'
+type DeckSortOption = 'updated' | 'name' | 'win-rate' | 'games'
 
 type FormState = {
   deckName: string
@@ -190,13 +191,27 @@ function BreakdownDonutChart({ items, emptyMessage }: { items: ChartDatum[]; emp
 
 // Calculates a readable win-rate label from the deck's persisted record.
 function getDeckWinRate(deck: Deck) {
-  const totalGames = deck.wins + deck.losses
+  const totalGames = getDeckTotalGames(deck)
 
   if (totalGames === 0) {
     return '0%'
   }
 
-  return `${Math.round((deck.wins / totalGames) * 100)}%`
+  return `${getDeckWinRateValue(deck)}%`
+}
+
+function getDeckTotalGames(deck: Deck) {
+  return deck.wins + deck.losses
+}
+
+function getDeckWinRateValue(deck: Deck) {
+  const totalGames = getDeckTotalGames(deck)
+
+  if (totalGames === 0) {
+    return 0
+  }
+
+  return Math.round((deck.wins / totalGames) * 100)
 }
 
 // Keeps color identity readable so colored styling is never the only signal.
@@ -260,11 +275,21 @@ function App() {
   const [selectedCommanderCard, setSelectedCommanderCard] = useState<CommanderCard | null>(null)
   const [topCommanderCards, setTopCommanderCards] = useState<Record<string, CommanderCard | null>>({})
   const [recordUpdatingDeckId, setRecordUpdatingDeckId] = useState<number | null>(null)
+  const [deckSearch, setDeckSearch] = useState('')
+  const [bracketFilter, setBracketFilter] = useState('')
+  const [colorFilter, setColorFilter] = useState('')
+  const [archetypeFilter, setArchetypeFilter] = useState('')
+  const [deckSort, setDeckSort] = useState<DeckSortOption>('updated')
+  const [loggingDeckId, setLoggingDeckId] = useState<number | null>(null)
 
   const totalGames = useMemo(() => (stats ? stats.totalWins + stats.totalLosses : 0), [stats])
   const topCommanderKey = useMemo(
     () => publicStats?.topCommanders.map((item) => item.commander).join('|') ?? '',
     [publicStats],
+  )
+  const loggingDeck = useMemo(
+    () => decks.find((deck) => deck.deckId === loggingDeckId) ?? null,
+    [decks, loggingDeckId],
   )
 
   // Loads public totals that can be shown before a visitor signs in.
@@ -387,6 +412,23 @@ function App() {
     }
   }, [currentView, formState.commander, selectedCommanderCard])
 
+  useEffect(() => {
+    if (!loggingDeckId) {
+      return
+    }
+
+    // Lets keyboard users close the game logging dialog without reaching for the pointer.
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setLoggingDeckId(null)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [loggingDeckId])
+
   function goToView(view: AppView) {
     setActionError('')
     setAuthError('')
@@ -493,6 +535,12 @@ function App() {
     setStats(null)
     setEditingDeckId(null)
     setRecordUpdatingDeckId(null)
+    setLoggingDeckId(null)
+    setDeckSearch('')
+    setBracketFilter('')
+    setColorFilter('')
+    setArchetypeFilter('')
+    setDeckSort('updated')
     setFormState(initialFormState)
     clearCommanderPicker()
     setCurrentView('home')
@@ -580,14 +628,14 @@ function App() {
   async function updateDeckRecord(deck: Deck, nextWins: number, nextLosses: number) {
     if (!token) {
       goToView('login')
-      return
+      return false
     }
 
     const wins = Math.max(0, nextWins)
     const losses = Math.max(0, nextLosses)
 
     if (wins === deck.wins && losses === deck.losses) {
-      return
+      return false
     }
 
     const payload: DeckUpsertRequest = {
@@ -610,10 +658,23 @@ function App() {
         body: JSON.stringify(payload),
       })
       await Promise.all([loadDashboardData(token), loadPublicStats()])
+      return true
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Unable to update the deck record.')
+      return false
     } finally {
       setRecordUpdatingDeckId(null)
+    }
+  }
+
+  async function logDeckGame(deck: Deck, result: 'win' | 'loss') {
+    const didUpdate =
+      result === 'win'
+        ? await updateDeckRecord(deck, deck.wins + 1, deck.losses)
+        : await updateDeckRecord(deck, deck.wins, deck.losses + 1)
+
+    if (didUpdate) {
+      setLoggingDeckId(null)
     }
   }
 
@@ -632,6 +693,14 @@ function App() {
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Unable to delete deck.')
     }
+  }
+
+  function clearDeckFilters() {
+    setDeckSearch('')
+    setBracketFilter('')
+    setColorFilter('')
+    setArchetypeFilter('')
+    setDeckSort('updated')
   }
 
   function renderHomeView() {
@@ -728,129 +797,293 @@ function App() {
   }
 
   function renderDeckListView() {
-    return (
-      <section className="panel" aria-labelledby="deck-list-heading">
-        <div className="panel-heading compact page-heading-row">
-          <div>
-            <span className="eyebrow">Library</span>
-            <h2 id="deck-list-heading">Your Decks</h2>
-            <p>All decks saved to your account, sorted by most recently updated.</p>
-          </div>
-          <button className="button-primary" onClick={openCreateDeckForm}>
-            Submit New Deck
-          </button>
-        </div>
+    const normalizedSearch = deckSearch.trim().toLowerCase()
+    const bracketOptions = Array.from(new Set(decks.map((deck) => deck.bracket))).sort(
+      (first, second) => first - second,
+    )
+    const hasDeckFilters = Boolean(
+      deckSearch || bracketFilter || colorFilter || archetypeFilter || deckSort !== 'updated',
+    )
 
-        {decks.length === 0 ? (
-          <div className="empty-state">
-            <strong>No decks yet.</strong>
-            <p>Submit your first Commander deck to start tracking records and trends.</p>
+    // Keeps the deck library scannable without changing the API-backed deck data.
+    const filteredDecks = decks
+      .filter((deck) => {
+        const matchesSearch =
+          !normalizedSearch ||
+          [
+            deck.deckName,
+            deck.commander,
+            `Bracket ${deck.bracket}`,
+            getColorIdentityLabel(deck),
+            deck.archetypeName ?? 'Unassigned',
+          ]
+            .join(' ')
+            .toLowerCase()
+            .includes(normalizedSearch)
+        const matchesBracket = !bracketFilter || String(deck.bracket) === bracketFilter
+        const matchesColor = !colorFilter || String(deck.colorIdentityId) === colorFilter
+        const deckArchetypeValue = deck.archetypeId === null ? 'unassigned' : String(deck.archetypeId)
+        const matchesArchetype = !archetypeFilter || deckArchetypeValue === archetypeFilter
+
+        return matchesSearch && matchesBracket && matchesColor && matchesArchetype
+      })
+      .sort((first, second) => {
+        if (deckSort === 'name') {
+          return first.deckName.localeCompare(second.deckName)
+        }
+
+        if (deckSort === 'win-rate') {
+          return (
+            getDeckWinRateValue(second) - getDeckWinRateValue(first) ||
+            getDeckTotalGames(second) - getDeckTotalGames(first) ||
+            first.deckName.localeCompare(second.deckName)
+          )
+        }
+
+        if (deckSort === 'games') {
+          return (
+            getDeckTotalGames(second) - getDeckTotalGames(first) ||
+            getDeckWinRateValue(second) - getDeckWinRateValue(first) ||
+            first.deckName.localeCompare(second.deckName)
+          )
+        }
+
+        return new Date(second.updatedAt).getTime() - new Date(first.updatedAt).getTime()
+      })
+
+    return (
+      <>
+        <section className="panel deck-library-panel" aria-labelledby="deck-list-heading">
+          <div className="panel-heading compact page-heading-row deck-library-heading">
+            <div>
+              <span className="eyebrow">Library</span>
+              <h2 id="deck-list-heading">Your Decks</h2>
+              <p>Manage and track your Commander decks.</p>
+            </div>
+            <button className="button-primary deck-create-button" onClick={openCreateDeckForm}>
+              + New Deck
+            </button>
           </div>
-        ) : (
-          <div className="table-wrap">
-            <table className="deck-table">
-              <caption className="sr-only">Saved Commander decks with records and actions</caption>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Commander</th>
-                  <th>Colors</th>
-                  <th>Archetype</th>
-                  <th>Record</th>
-                  <th>Updated</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {decks.map((deck) => {
+
+          <form
+            className="deck-toolbar"
+            role="search"
+            aria-label="Filter saved decks"
+            onSubmit={(event) => event.preventDefault()}
+          >
+            <label className="deck-toolbar-field deck-search-field">
+              <span className="sr-only">Search decks</span>
+              <input
+                value={deckSearch}
+                onChange={(event) => setDeckSearch(event.target.value)}
+                placeholder="Search decks..."
+                type="search"
+              />
+            </label>
+
+            <label className="deck-toolbar-field">
+              <span className="sr-only">Filter by bracket</span>
+              <select
+                value={bracketFilter}
+                onChange={(event) => setBracketFilter(event.target.value)}
+              >
+                <option value="">All brackets</option>
+                {bracketOptions.map((bracket) => (
+                  <option key={bracket} value={bracket}>
+                    Bracket {bracket}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="deck-toolbar-field">
+              <span className="sr-only">Filter by color identity</span>
+              <select value={colorFilter} onChange={(event) => setColorFilter(event.target.value)}>
+                <option value="">All colors</option>
+                {colorIdentities.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.code ? `${item.code} - ${item.name}` : item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="deck-toolbar-field">
+              <span className="sr-only">Filter by archetype</span>
+              <select
+                value={archetypeFilter}
+                onChange={(event) => setArchetypeFilter(event.target.value)}
+              >
+                <option value="">All archetypes</option>
+                <option value="unassigned">Unassigned</option>
+                {archetypes.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="deck-toolbar-field">
+              <span className="sr-only">Sort decks</span>
+              <select
+                value={deckSort}
+                onChange={(event) => setDeckSort(event.target.value as DeckSortOption)}
+              >
+                <option value="updated">Recently updated</option>
+                <option value="name">Name A-Z</option>
+                <option value="win-rate">Best win rate</option>
+                <option value="games">Most games played</option>
+              </select>
+            </label>
+
+            {hasDeckFilters && (
+              <button type="button" className="button-text deck-clear-filters" onClick={clearDeckFilters}>
+                Clear
+              </button>
+            )}
+          </form>
+
+          {decks.length === 0 ? (
+            <div className="empty-state">
+              <strong>No decks yet.</strong>
+              <p>Submit your first Commander deck to start tracking records and trends.</p>
+            </div>
+          ) : filteredDecks.length === 0 ? (
+            <div className="empty-state">
+              <strong>No decks match those filters.</strong>
+              <p>Try a broader search or clear the current filters.</p>
+              <button type="button" className="button-secondary" onClick={clearDeckFilters}>
+                Clear Filters
+              </button>
+            </div>
+          ) : (
+            <>
+              <p className="deck-results-summary">
+                Showing {filteredDecks.length} of {decks.length} decks
+              </p>
+              <div className="deck-card-grid" aria-label="Saved Commander decks">
+                {filteredDecks.map((deck) => {
                   const isUpdatingRecord = recordUpdatingDeckId === deck.deckId
 
                   return (
-                    <tr key={deck.deckId}>
-                      <td>
-                        <strong className="deck-name">{deck.deckName}</strong>
-                        <span className="deck-meta">Bracket {deck.bracket}</span>
-                      </td>
-                      <td>{deck.commander}</td>
-                      <td>
+                    <article className="deck-card" key={deck.deckId}>
+                      <div className="deck-card-top">
+                        <div className="deck-card-title-group">
+                          <h3>{deck.deckName}</h3>
+                          <p>{deck.commander}</p>
+                        </div>
+                        <strong className="deck-card-record">
+                          {deck.wins}-{deck.losses}
+                        </strong>
+                      </div>
+
+                      <div className="deck-badge-row" aria-label={`${deck.deckName} details`}>
+                        <span className="badge">Bracket {deck.bracket}</span>
                         <span className="badge badge-color">{getColorIdentityLabel(deck)}</span>
-                      </td>
-                      <td>{deck.archetypeName ?? 'Unassigned'}</td>
-                      <td>
-                        <div className="record-control">
-                          <div>
-                            <span className="record-text">
-                              {deck.wins}-{deck.losses}
-                            </span>
-                            <span className="deck-meta">{getDeckWinRate(deck)} win rate</span>
+                        <span className="badge">{deck.archetypeName ?? 'Unassigned'}</span>
+                      </div>
+
+                      <div className="deck-card-meta">
+                        <p>
+                          <span>Record</span>
+                          <strong>
+                            {deck.wins}-{deck.losses}
+                          </strong>
+                        </p>
+                        <p>{getDeckWinRate(deck)} win rate</p>
+                        <p>Updated {formatUpdatedAt(deck.updatedAt)}</p>
+                      </div>
+
+                      <div className="deck-card-actions">
+                        <button
+                          className="button-secondary deck-log-button"
+                          onClick={() => setLoggingDeckId(deck.deckId)}
+                          disabled={isUpdatingRecord}
+                          aria-label={`Log a game for ${deck.deckName}`}
+                        >
+                          {isUpdatingRecord ? 'Logging...' : 'Log Game'}
+                        </button>
+                        <button className="button-text" onClick={() => startEditing(deck)}>
+                          Edit
+                        </button>
+                        <details className="deck-overflow-menu">
+                          <summary aria-label={`More actions for ${deck.deckName}`} title="More actions">
+                            ...
+                          </summary>
+                          <div className="deck-overflow-panel" role="menu">
+                            <button
+                              type="button"
+                              className="overflow-danger"
+                              role="menuitem"
+                              onClick={() => deleteDeck(deck.deckId)}
+                            >
+                              Delete Deck
+                            </button>
                           </div>
-                          <div className="record-stepper-group" aria-label={`Update ${deck.deckName} record`}>
-                            <div className="record-stepper">
-                              <span>W</span>
-                              <button
-                                type="button"
-                                onClick={() => updateDeckRecord(deck, deck.wins - 1, deck.losses)}
-                                disabled={isUpdatingRecord || deck.wins === 0}
-                                title="Remove win"
-                                aria-label={`Remove win from ${deck.deckName}`}
-                              >
-                                -
-                              </button>
-                              <strong>{deck.wins}</strong>
-                              <button
-                                type="button"
-                                onClick={() => updateDeckRecord(deck, deck.wins + 1, deck.losses)}
-                                disabled={isUpdatingRecord}
-                                title="Add win"
-                                aria-label={`Add win to ${deck.deckName}`}
-                              >
-                                +
-                              </button>
-                            </div>
-                            <div className="record-stepper">
-                              <span>L</span>
-                              <button
-                                type="button"
-                                onClick={() => updateDeckRecord(deck, deck.wins, deck.losses - 1)}
-                                disabled={isUpdatingRecord || deck.losses === 0}
-                                title="Remove loss"
-                                aria-label={`Remove loss from ${deck.deckName}`}
-                              >
-                                -
-                              </button>
-                              <strong>{deck.losses}</strong>
-                              <button
-                                type="button"
-                                onClick={() => updateDeckRecord(deck, deck.wins, deck.losses + 1)}
-                                disabled={isUpdatingRecord}
-                                title="Add loss"
-                                aria-label={`Add loss to ${deck.deckName}`}
-                              >
-                                +
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                      <td>{formatUpdatedAt(deck.updatedAt)}</td>
-                      <td>
-                        <div className="row-actions">
-                          <button className="button-text" onClick={() => startEditing(deck)}>
-                            Edit
-                          </button>
-                          <button className="button-danger" onClick={() => deleteDeck(deck.deckId)}>
-                            Delete Deck
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                        </details>
+                      </div>
+                    </article>
                   )
                 })}
-              </tbody>
-            </table>
+              </div>
+            </>
+          )}
+        </section>
+
+        {loggingDeck && (
+          <div
+            className="modal-backdrop"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                setLoggingDeckId(null)
+              }
+            }}
+          >
+            <section
+              className="log-game-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="log-game-heading"
+            >
+              <div className="log-game-heading">
+                <span className="eyebrow">Log Game</span>
+                <h2 id="log-game-heading">{loggingDeck.deckName}</h2>
+                <p>{loggingDeck.commander}</p>
+              </div>
+
+              <div className="log-record-summary">
+                <span>Current record</span>
+                <strong>
+                  {loggingDeck.wins}-{loggingDeck.losses}
+                </strong>
+                <small>{getDeckWinRate(loggingDeck)} win rate</small>
+              </div>
+
+              <div className="log-game-actions">
+                <button
+                  className="button-primary"
+                  onClick={() => logDeckGame(loggingDeck, 'win')}
+                  disabled={recordUpdatingDeckId === loggingDeck.deckId}
+                >
+                  Log Win
+                </button>
+                <button
+                  className="button-secondary"
+                  onClick={() => logDeckGame(loggingDeck, 'loss')}
+                  disabled={recordUpdatingDeckId === loggingDeck.deckId}
+                >
+                  Log Loss
+                </button>
+                <button className="button-text" onClick={() => setLoggingDeckId(null)}>
+                  Cancel
+                </button>
+              </div>
+            </section>
           </div>
         )}
-      </section>
+      </>
     )
   }
 
