@@ -124,14 +124,24 @@ public class StatsController : ControllerBase
             }
         }
 
-        // Counts full color identities so each saved deck contributes to exactly one chart slice.
+        // Counts individual W/U/B/R/G color appearances across deck identities.
+        // A multicolor deck contributes once to each color it contains, which shows most-used colors.
         const string colorSql = @"
-            SELECT ci.code, ci.name, COUNT(*)
-            FROM decks d
-            JOIN color_identities ci ON ci.color_identity_id = d.color_identity_id
-            WHERE d.user_id = @userId
-            GROUP BY ci.code, ci.name, ci.color_count
-            ORDER BY COUNT(*) DESC, ci.color_count, ci.code;";
+            WITH colors(color_code, color_name, sort_order) AS (
+                VALUES
+                    ('W', 'White', 1),
+                    ('U', 'Blue', 2),
+                    ('B', 'Black', 3),
+                    ('R', 'Red', 4),
+                    ('G', 'Green', 5)
+            )
+            SELECT colors.color_code, colors.color_name, COUNT(deck_colors.deck_id)
+            FROM colors
+            LEFT JOIN deck_individual_colors deck_colors
+                ON deck_colors.color_code = colors.color_code
+                AND deck_colors.user_id = @userId
+            GROUP BY colors.color_code, colors.color_name, colors.sort_order
+            ORDER BY COUNT(deck_colors.deck_id) DESC, colors.sort_order;";
 
         await using (var colorCommand = new NpgsqlCommand(colorSql, connection))
         {

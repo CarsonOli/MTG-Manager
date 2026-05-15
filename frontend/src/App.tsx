@@ -152,24 +152,37 @@ function BreakdownBarChart({ items, emptyMessage }: { items: ChartDatum[]; empty
 }
 
 // Uses a CSS donut so the color spread is scannable while the legend remains readable.
-function BreakdownDonutChart({ items, emptyMessage }: { items: ChartDatum[]; emptyMessage: string }) {
+function BreakdownDonutChart({
+  items,
+  emptyMessage,
+  centerLabel = 'Decks',
+  ariaLabel,
+}: {
+  items: ChartDatum[]
+  emptyMessage: string
+  centerLabel?: string
+  ariaLabel?: string
+}) {
   const total = getChartTotal(items)
 
-  if (total === 0) {
+  if (items.length === 0) {
     return <p className="chart-empty">{emptyMessage}</p>
   }
+
+  const donutGradient =
+    total === 0 ? 'conic-gradient(rgba(58, 65, 80, 0.9) 0 100%)' : getDonutGradient(items, total)
 
   return (
     <div className="donut-layout">
       <div
         className="donut-chart"
         role="img"
-        aria-label={`Color identity chart covering ${total} saved decks`}
-        style={{ '--donut-gradient': getDonutGradient(items, total) } as ChartStyle}
+        aria-label={ariaLabel ?? `Breakdown chart covering ${total} ${centerLabel.toLowerCase()}`}
+        style={{ '--donut-gradient': donutGradient } as ChartStyle}
       >
         <div className="donut-hole">
           <strong>{total}</strong>
-          <span>Decks</span>
+          <span>{centerLabel}</span>
         </div>
       </div>
 
@@ -1273,6 +1286,7 @@ function App() {
         accent: getColorIdentityAccent(colorCode, index),
       }
     })
+    const totalColorUses = getChartTotal(colorChartItems)
     const archetypeChartItems: ChartDatum[] = (stats?.archetypeBreakdown ?? [])
       .slice()
       .sort((first, second) => second.deckCount - first.deckCount)
@@ -1325,9 +1339,14 @@ function App() {
           <article className="stat-chart-card">
             <div className="chart-card-heading">
               <h3>Color Mix</h3>
-              <span>{colorChartItems.length} identities</span>
+              <span>{colorChartItems.length} colors</span>
             </div>
-            <BreakdownDonutChart items={colorChartItems} emptyMessage="No color identity data yet." />
+            <BreakdownDonutChart
+              items={colorChartItems}
+              emptyMessage="No color usage data yet."
+              centerLabel="Uses"
+              ariaLabel={`Color mix chart covering ${totalColorUses} color uses across saved decks`}
+            />
           </article>
 
           <article className="stat-chart-card wide">
